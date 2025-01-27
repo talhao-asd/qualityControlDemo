@@ -3,12 +3,14 @@ import { useState } from "react";
 import { SafeAreaView, StyleSheet, View } from "react-native";
 import Animated, { FadeInRight, FadeOutLeft, LayoutAnimationConfig } from "react-native-reanimated";
 import AnimatedTabs from "./";
+import { Image } from "react-native";
 
 const tabs = [ "#FF005C", "#FFBD00", "#00B3E6", "#00CC96", "#FF005C" ];
 
 export default function Header() {
   const [index, setIndex] = useState(0);
   return(
+    <>
     <SafeAreaView style={[styles.container, {margin: 12, gap: 12}]}>
       <View style={{flexDirection: "row", alignItems: "center"}}>
         <Home size={24} color="#555" />
@@ -44,6 +46,7 @@ export default function Header() {
         />
       </LayoutAnimationConfig>
     </SafeAreaView>
+    </>
   )
 }
 
