@@ -1,9 +1,25 @@
 import React, {useEffect, useState, useCallback, useMemo} from 'react';
-import {View, Text, FlatList, Image, StyleSheet, SafeAreaView, TouchableOpacity, Alert} from 'react-native';
+import {
+  View,
+  Text,
+  FlatList,
+  Image,
+  StyleSheet,
+  SafeAreaView,
+  TouchableOpacity,
+  Alert,
+  Dimensions,
+} from 'react-native';
 import SkeletonLoader from '../components/Main/SkeletonLoader';
 import NoDataView from '../components/Main/NoDataView';
 import AnimatedTabs from '../components';
 import ProductModal from '../components/Main/ProductModal';
+import HeaderSecondBar from '../components/Main/HeaderSecondBar';
+import { useSelector } from 'react-redux';
+import DeviceInfo from 'react-native-device-info';
+import NetInfo from '@react-native-community/netinfo';
+
+const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('window');
 
 const HomeScreen = () => {
   const [data, setData] = useState([]);
@@ -13,26 +29,65 @@ const HomeScreen = () => {
   const [showNoData, setShowNoData] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
+  const [headerVisible, setHeaderVisible] = useState(false);
+  const { searchText, sonuc } = useSelector(state => state.search);
+  const [ipAddress, setIpAddress] = useState('');
 
-  // Memoize the tabs data to prevent recreation on each render
-  const tabsData = useMemo(
-    () => [
-      {icon: 'Loader', label: 'Bekliyor'},
-      {icon: 'AArrowUp', label: 'A Sevk'},
-      {icon: 'Bold', label: 'B Sevk'},
-      {icon: 'ShieldMinus', label: 'B Kalsın'},
-    ],
-    [],
-  );
+  useEffect(() => {
+    const getIPAddress = async () => {
+      try {
+        const ip = await DeviceInfo.getIpAddress();
+        if (ip) {
+          setIpAddress(ip);
+          console.log('Device Wi-Fi IP Address:', ip);
+        } else {
+          console.log('Device IP Address is unknown');
+        }
+      } catch (error) {
+        console.error('Error fetching IP address:', error);
+      }
+    };
+
+    getIPAddress();
+  }, []);
+
+  // Memoize the tabs data based on the IP address
+  const tabsData = useMemo(() => {
+    if (ipAddress.startsWith('10.0.0')) {
+      return [
+        { icon: 'Loader', label: 'Kayıt' }, // Extra tab for 10.0.0
+        { icon: 'Loader', label: 'Bekliyor' },
+        { icon: 'AArrowUp', label: 'A Sevk' },
+        { icon: 'Bold', label: 'B Sevk' },
+        { icon: 'ShieldMinus', label: 'B Kalsın' },
+        { icon: 'Loader', label: 'Tümü' }, // Extra tab for 10.0.0
+      ];
+    } else if (ipAddress.startsWith('10.0.2')) {
+      return [
+        { icon: 'Loader', label: 'Bekliyor' },
+        { icon: 'AArrowUp', label: 'A Sevk' },
+        { icon: 'Bold', label: 'B Sevk' },
+        { icon: 'ShieldMinus', label: 'B Kalsın' },
+      ];
+    }
+    return []; // Return an empty array if the IP doesn't match
+  }, [ipAddress]);
 
   // Memoize the fetch URL with base URL constant
   const BASE_URL = useMemo(() => 'http://192.168.0.88:90', []);
   const fetchUrl = useMemo(() => {
     const endpoint = '/api/Product/Listele';
-    return selectedIndex === 3
+    let url = selectedIndex === 3
       ? `${BASE_URL}${endpoint}`
       : `${BASE_URL}${endpoint}?karar=${selectedIndex + 1}`;
-  }, [selectedIndex, BASE_URL]);
+    
+    // Add sonuc parameter only if it's not 'tumu'
+    if (sonuc !== 'tumu') {
+      url += `${url.includes('?') ? '&' : '?'}sonuc=${sonuc}`;
+    }
+    
+    return url;
+  }, [selectedIndex, BASE_URL, sonuc]);
 
   // Memoize the fetch options
   const fetchOptions = useMemo(
@@ -53,8 +108,15 @@ const HomeScreen = () => {
     [BASE_URL],
   );
 
-  // Memoize the photo keyExtractor
-  const photoKeyExtractor = useCallback(photo => photo.id.toString(), []);
+  // Update the keyExtractor to include more unique identifiers
+  const keyExtractor = useCallback((item, index) => 
+    `${item.id}-${item.sipariskodu}-${item.tarih}-${index}`,
+  []);
+
+  // Update the photo keyExtractor if you re-enable the photo FlatList
+  const photoKeyExtractor = useCallback((photo, index) => 
+    `photo-${photo.id}-${index}`,
+  []);
 
   const handlePressItem = item => {
     setSelectedItem(item);
@@ -66,17 +128,68 @@ const HomeScreen = () => {
     setSelectedItem(null);
   };
 
+  const getHataYeriDisplay = hataYeri => {
+    const location = Number(hataYeri);
+
+    switch (location) {
+      case 1:
+      case 4:
+      case 9:
+      case 12:
+        return 'Ön - Köşe';
+
+      case 2:
+      case 3:
+      case 5:
+      case 8:
+      case 10:
+      case 11:
+        return 'Ön - Kenar';
+
+      case 6:
+      case 7:
+        return 'Ön - Orta';
+
+      case 13:
+      case 16:
+      case 21:
+      case 24:
+        return 'Arka - Köşe';
+
+      case 14:
+      case 15:
+      case 17:
+      case 20:
+      case 22:
+      case 23:
+        return 'Arka - Kenar';
+
+      case 18:
+      case 19:
+        return 'Arka - Orta';
+
+      default:
+        return 'Bilinmiyor';
+    }
+  };
   // Memoize the renderItem function with its dependencies
   const renderItem = useCallback(
     ({item}) => (
       <TouchableOpacity
         onPress={() => handlePressItem(item)}
         style={styles.card}>
-        <Text style={styles.title}>{item.musteriAd?.slice(0, 15)}...</Text>
+        <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+          <Text style={styles.title}>{item.musteriAd?.slice(0, 15)}...</Text>
+          <Text style={styles.description}>
+            {new Date(item.tarih).toLocaleDateString('tr-TR')}
+          </Text>
+        </View>
         <Text style={styles.siparisKodu}>{item.sipariskodu}</Text>
         <Text style={styles.subtitle}>{item.stokTanimi}</Text>
-        <Text style={styles.description}>{item.hata} / {item.hataYeri}</Text>
-        <Text style={styles.description}>Kayıt Tarihi: {new Date(item.kayitTarihi).toLocaleString('tr-TR')}</Text>
+        <Text style={styles.description}>
+          {item.hata} / {getHataYeriDisplay(item.hataYeri)}
+        </Text>
+
         {/* <FlatList
           data={item.abFotolars}
           horizontal
@@ -91,35 +204,36 @@ const HomeScreen = () => {
     [handlePressItem, renderImage, photoKeyExtractor],
   );
 
-  const keyExtractor = useCallback(item => item.id.toString(), []);
+  const handleTabChange = useCallback(
+    index => {
+      // Reduce delay or optimize here
+      setIsLoading(true);
+      setShowNoData(false);
+      setData([]);
+      setFilteredData([]);
 
-  const handleTabChange = useCallback(index => {
-    // Reduce delay or optimize here
-    setIsLoading(true);
-    setShowNoData(false);
-    setData([]);
-    setFilteredData([]);
-
-    if (index === selectedIndex) {
-      // Immediate fetch without waiting for useEffect
-      fetch(fetchUrl, fetchOptions)
-        .then(response => response.json())
-        .then(data => {
-          if (data) {
-            parseAndSetData(data);
-          }
-        })
-        .catch(error => {
-          console.error('Fetch error:', error);
-          setShowNoData(true);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
-    } else {
-      setSelectedIndex(index);
-    }
-  }, [selectedIndex, fetchUrl, fetchOptions, parseAndSetData]);
+      if (index === selectedIndex) {
+        // Immediate fetch without waiting for useEffect
+        fetch(fetchUrl, fetchOptions)
+          .then(response => response.json())
+          .then(data => {
+            if (data) {
+              parseAndSetData(data);
+            }
+          })
+          .catch(error => {
+            console.error('Fetch error:', error);
+            setShowNoData(true);
+          })
+          .finally(() => {
+            setIsLoading(false);
+          });
+      } else {
+        setSelectedIndex(index);
+      }
+    },
+    [selectedIndex, fetchUrl, fetchOptions, parseAndSetData],
+  );
 
   // Memoize the error handler
   const handleError = useCallback(error => {
@@ -141,18 +255,51 @@ const HomeScreen = () => {
 
     if (responseData.data && Array.isArray(responseData.data)) {
       if (responseData.data.length === 0) {
-        // Show no data view if the array is empty
         setShowNoData(true);
       } else {
         setShowNoData(false);
-        setData(responseData.data);
-        setFilteredData(responseData.data);
+        const sortedData = responseData.data.sort((a, b) => 
+          new Date(b.tarih) - new Date(a.tarih)
+        );
+        setData(sortedData);
+        setFilteredData(sortedData);
       }
     } else {
       console.error('Expected an array but received:', responseData);
       setShowNoData(true);
     }
   }, []);
+
+  const handleSort = useCallback((sortOrder) => {
+    setFilteredData(prevData => {
+      const newData = [...prevData];
+      return newData.sort((a, b) => {
+        const dateA = new Date(a.tarih);
+        const dateB = new Date(b.tarih);
+        return sortOrder === 'desc' 
+          ? dateB - dateA  // Newer to older
+          : dateA - dateB; // Older to newer
+      });
+    });
+  }, []);
+
+  const handleSearch = useCallback((searchText) => {
+    if (!searchText) {
+      setFilteredData(data);
+      return;
+    }
+
+    const filtered = data.filter(item => 
+      item.sipariskodu.toLowerCase().includes(searchText.toLowerCase())
+    );
+    setFilteredData(filtered);
+  }, [data]);
+
+  useEffect(() => {
+    if (headerVisible && searchText) {
+      handleSearch(searchText);
+    }
+  }, [headerVisible, searchText, handleSearch]);
 
   useEffect(() => {
     let isMounted = true;
@@ -197,6 +344,16 @@ const HomeScreen = () => {
     };
   }, [fetchUrl, fetchOptions, parseAndSetData]);
 
+  const getPublicIPAddress = async () => {
+    try {
+      const response = await fetch('https://api.ipify.org?format=json');
+      const data = await response.json();
+      console.log('Public IP Address:', data.ip); // Log the public IP address
+    } catch (error) {
+      console.error('Error fetching public IP address:', error);
+    }
+  };
+
   // Memoize the FlatList component
   const ProductList = useMemo(
     () => (
@@ -225,6 +382,11 @@ const HomeScreen = () => {
     [],
   );
 
+  const handleKararUpdate = useCallback(() => {
+    // Trigger a refresh by simulating a tab change to the current tab
+    handleTabChange(selectedIndex);
+  }, [selectedIndex, handleTabChange]);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -238,25 +400,32 @@ const HomeScreen = () => {
           inactiveBackgroundColor="#ddd"
         />
         <TouchableOpacity
+          onPress={() => {
+            setHeaderVisible(prevState => !prevState);
+          }}
           onLongPress={() => Alert.alert('')}
           delayLongPress={5000}
-          activeOpacity={1} style={{
-            position: 'absolute',
-            top: 12,
-            right: 16,
-          }}>
+          activeOpacity={1}
+          style={styles.headerLogo}>
           <Image
             source={require('../assets/images/new.png')}
-            style={{
-              resizeMode: 'contain', 
-              width: 125,
-              height: 50,
-            }}
+            style={styles.headerImage}
           />
         </TouchableOpacity>
       </View>
+      
+      {headerVisible && (
+        <HeaderSecondBar 
+          onSort={handleSort} 
+          onSearch={handleSearch} 
+          setIsLoading={setIsLoading}
+        />
+      )}
+
       {isLoading ? (
-        <View style={styles.skeletonContainer}><SkeletonLoader /></View>
+        <View style={styles.skeletonContainer}>
+          <SkeletonLoader />
+        </View>
       ) : showNoData ? (
         <NoDataView />
       ) : (
@@ -266,6 +435,7 @@ const HomeScreen = () => {
         visible={modalVisible}
         onClose={handleCloseModal}
         item={selectedItem}
+        onKararUpdate={handleKararUpdate}
       />
     </SafeAreaView>
   );
@@ -279,15 +449,28 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    marginTop: 10
+    paddingVertical: SCREEN_HEIGHT * 0.015,
+    paddingHorizontal: SCREEN_WIDTH * 0.04,
+    height: SCREEN_HEIGHT * 0.08,
+    maxHeight: 80,
+  },
+  headerLogo: {
+    position: 'absolute',
+    right: SCREEN_WIDTH * 0.04,
+    height: '100%',
+    justifyContent: 'center',
+  },
+  headerImage: {
+    resizeMode: 'contain',
+    width: Math.min(SCREEN_WIDTH * 0.25, 100),
+    height: '80%',
   },
   card: {
     backgroundColor: '#fff',
-    padding: 10,
-    marginVertical: 8,
-    marginHorizontal: 16,
-    borderRadius: 8,
+    padding: Math.min(SCREEN_WIDTH * 0.04, 12),
+    marginVertical: SCREEN_HEIGHT * 0.01,
+    marginHorizontal: SCREEN_WIDTH * 0.04,
+    borderRadius: Math.min(SCREEN_WIDTH * 0.02, 8),
     shadowColor: '#1981ef',
     shadowOffset: {
       width: 0,
@@ -298,30 +481,29 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   title: {
-    fontSize: 18,
+    fontSize: Math.min(SCREEN_WIDTH * 0.045, 18),
     fontWeight: 'bold',
     color: '#000',
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: Math.min(SCREEN_WIDTH * 0.035, 14),
     color: '#555',
-    marginBottom: 4,
+    marginBottom: SCREEN_HEIGHT * 0.005,
   },
   siparisKodu: {
-    fontSize: 16,
+    fontSize: Math.min(SCREEN_WIDTH * 0.04, 16),
     color: '#1981ef',
-    marginVertical: 2,
+    marginVertical: SCREEN_HEIGHT * 0.003,
   },
-
   description: {
-    fontSize: 12,
+    fontSize: Math.min(SCREEN_WIDTH * 0.03, 12),
     color: '#777',
   },
   image: {
-    width: 100,
-    height: 100,
-    marginRight: 8,
-    borderRadius: 8,
+    width: Math.min(SCREEN_WIDTH * 0.25, 100),
+    height: Math.min(SCREEN_WIDTH * 0.25, 100),
+    marginRight: SCREEN_WIDTH * 0.02,
+    borderRadius: Math.min(SCREEN_WIDTH * 0.02, 8),
   },
   logo: {},
   noDataContainer: {
@@ -337,6 +519,16 @@ const styles = StyleSheet.create({
   skeletonContainer: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  headerSecondBar: {
+    backgroundColor: '#f5f5f5',
+    padding: SCREEN_WIDTH * 0.04,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  headerSecondBarText: {
+    fontSize: Math.min(SCREEN_WIDTH * 0.04, 16),
+    color: '#333',
   },
 });
 
