@@ -31,55 +31,20 @@ const HomeScreen = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [headerVisible, setHeaderVisible] = useState(false);
   const { searchText, sonuc } = useSelector(state => state.search);
-  const [ipAddress, setIpAddress] = useState('');
 
-  useEffect(() => {
-    const getIPAddress = async () => {
-      try {
-        const ip = await DeviceInfo.getIpAddress();
-        if (ip) {
-          setIpAddress(ip);
-          console.log('Device Wi-Fi IP Address:', ip);
-        } else {
-          console.log('Device IP Address is unknown');
-        }
-      } catch (error) {
-        console.error('Error fetching IP address:', error);
-      }
-    };
-
-    getIPAddress();
-  }, []);
-
-  // Memoize the tabs data based on the IP address
-  const tabsData = useMemo(() => {
-    if (ipAddress.startsWith('10.0.0')) {
-      return [
-        { icon: 'Loader', label: 'Kayıt' }, // Extra tab for 10.0.0
-        { icon: 'Loader', label: 'Bekliyor' },
-        { icon: 'AArrowUp', label: 'A Sevk' },
-        { icon: 'Bold', label: 'B Sevk' },
-        { icon: 'ShieldMinus', label: 'B Kalsın' },
-        { icon: 'Loader', label: 'Tümü' }, // Extra tab for 10.0.0
-      ];
-    } else if (ipAddress.startsWith('10.0.2')) {
-      return [
-        { icon: 'Loader', label: 'Bekliyor' },
-        { icon: 'AArrowUp', label: 'A Sevk' },
-        { icon: 'Bold', label: 'B Sevk' },
-        { icon: 'ShieldMinus', label: 'B Kalsın' },
-      ];
-    }
-    return []; // Return an empty array if the IP doesn't match
-  }, [ipAddress]);
+  // Simplify tabsData to a static array
+  const tabsData = useMemo(() => [
+    { icon: 'Loader', label: 'Bekliyor' },
+    { icon: 'AArrowUp', label: 'A Sevk' },
+    { icon: 'Bold', label: 'B Sevk' },
+    { icon: 'ShieldMinus', label: 'B Kalsın' },
+  ], []); // Empty dependency array since it's now static
 
   // Memoize the fetch URL with base URL constant
   const BASE_URL = useMemo(() => 'http://192.168.0.88:90', []);
   const fetchUrl = useMemo(() => {
     const endpoint = '/api/Product/Listele';
-    let url = selectedIndex === 3
-      ? `${BASE_URL}${endpoint}`
-      : `${BASE_URL}${endpoint}?karar=${selectedIndex + 1}`;
+    let url = `${BASE_URL}${endpoint}?karar=${selectedIndex + 1}`;
     
     // Add sonuc parameter only if it's not 'tumu'
     if (sonuc !== 'tumu') {
@@ -343,16 +308,6 @@ const HomeScreen = () => {
       clearTimeout(timeoutId);
     };
   }, [fetchUrl, fetchOptions, parseAndSetData]);
-
-  const getPublicIPAddress = async () => {
-    try {
-      const response = await fetch('https://api.ipify.org?format=json');
-      const data = await response.json();
-      console.log('Public IP Address:', data.ip); // Log the public IP address
-    } catch (error) {
-      console.error('Error fetching public IP address:', error);
-    }
-  };
 
   // Memoize the FlatList component
   const ProductList = useMemo(
