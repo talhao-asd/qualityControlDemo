@@ -31,6 +31,13 @@ const HomeScreen = () => {
   const [selectedItem, setSelectedItem] = useState(null);
   const [headerVisible, setHeaderVisible] = useState(false);
   const { searchText, sonuc } = useSelector(state => state.search);
+  const [modalLoading, setModalLoading] = useState(false);
+
+  // Add new state for grouped data
+  const [groupedData, setGroupedData] = useState([]);
+
+  // Add new state for original data
+  const [originalGroupedData, setOriginalGroupedData] = useState([]);
 
   // Simplify tabsData to a static array
   const tabsData = useMemo(() => [
@@ -44,15 +51,9 @@ const HomeScreen = () => {
   const BASE_URL = useMemo(() => 'http://192.168.0.88:90', []);
   const fetchUrl = useMemo(() => {
     const endpoint = '/api/Product/Listele';
-    let url = `${BASE_URL}${endpoint}?karar=${selectedIndex + 1}`;
-    
-    // Add sonuc parameter only if it's not 'tumu'
-    if (sonuc !== 'tumu') {
-      url += `${url.includes('?') ? '&' : '?'}sonuc=${sonuc}`;
-    }
-    
+    let url = `${BASE_URL}${endpoint}?karar=${selectedIndex + 1}&sonuc=0`;
     return url;
-  }, [selectedIndex, BASE_URL, sonuc]);
+  }, [selectedIndex, BASE_URL]);
 
   // Memoize the fetch options
   const fetchOptions = useMemo(
@@ -83,10 +84,48 @@ const HomeScreen = () => {
     `photo-${photo.id}-${index}`,
   []);
 
-  const handlePressItem = item => {
-    setSelectedItem(item);
-    setModalVisible(true);
-  };
+  // Add fetchProductPhotos function
+  const fetchProductPhotos = useCallback(async (productId) => {
+    try {
+      const response = await fetch(
+        `${BASE_URL}/api/Product/GetPhotosByProductId?productId=${productId}`,
+        {
+          method: 'GET',
+          headers: {
+            accept: '*/*',
+          },
+        }
+      );
+      const result = await response.json();
+      if (result.statusCode === 200 && result.data) {
+        return result.data;
+      }
+      return [];
+    } catch (error) {
+      console.error('Error fetching photos:', error);
+      return [];
+    }
+  }, [BASE_URL]);
+
+  // Update handlePressItem to use fetchProductPhotos
+  const handlePressItem = useCallback(async (item) => {
+    setModalLoading(true);
+    try {
+      const photos = await fetchProductPhotos(item.id);
+      console.log('Fetched photos:', photos);
+      setSelectedItem({ 
+        ...item, 
+        photos: photos
+      });
+      setModalVisible(true);
+    } catch (error) {
+      console.error('Error in handlePressItem:', error);
+      setSelectedItem(item);
+      setModalVisible(true);
+    } finally {
+      setModalLoading(false);
+    }
+  }, [fetchProductPhotos]);
 
   const handleCloseModal = () => {
     setModalVisible(false);
@@ -212,23 +251,46 @@ const HomeScreen = () => {
     setFilteredData([]);
   }, []);
 
-  // Memoize the data parser
+  // Update parseAndSetData to store both original and filtered data
   const parseAndSetData = useCallback(responseData => {
-    // Clear existing data first
-    setData([]);
-    setFilteredData([]);
-
     if (responseData.data && Array.isArray(responseData.data)) {
       if (responseData.data.length === 0) {
         setShowNoData(true);
-      } else {
-        setShowNoData(false);
-        const sortedData = responseData.data.sort((a, b) => 
-          new Date(b.tarih) - new Date(a.tarih)
-        );
-        setData(sortedData);
-        setFilteredData(sortedData);
+        return;
       }
+      
+      setShowNoData(false);
+      
+      // Group by barcode
+      const groupedByBarcode = responseData.data.reduce((acc, current) => {
+        if (!acc[current.barkod]) {
+          acc[current.barkod] = {
+            barkod: current.barkod,
+            stokTanimi: current.stokTanimi,
+            musteriAd: current.musteriAd,
+            products: []
+          };
+        }
+        
+        const existingProduct = acc[current.barkod].products.find(
+          item => item.id === current.id && item.sipariskodu === current.sipariskodu
+        );
+        
+        if (!existingProduct) {
+          acc[current.barkod].products.push(current);
+        }
+        
+        return acc;
+      }, {});
+
+      // Convert to array and sort
+      const groupedArray = Object.values(groupedByBarcode).map(group => ({
+        ...group,
+        products: group.products.sort((a, b) => new Date(b.tarih) - new Date(a.tarih))
+      }));
+
+      setOriginalGroupedData(groupedArray); // Store original data
+      setGroupedData(groupedArray); // Set current filtered data
     } else {
       console.error('Expected an array but received:', responseData);
       setShowNoData(true);
@@ -248,23 +310,31 @@ const HomeScreen = () => {
     });
   }, []);
 
+  // Update handleSearch to safely check properties
   const handleSearch = useCallback((searchText) => {
     if (!searchText) {
-      setFilteredData(data);
+      setGroupedData(originalGroupedData);
       return;
     }
 
-    const filtered = data.filter(item => 
-      item.sipariskodu.toLowerCase().includes(searchText.toLowerCase())
-    );
-    setFilteredData(filtered);
-  }, [data]);
+    const searchLower = searchText.toLowerCase();
+    const filtered = originalGroupedData.filter(group => {
+      return group.products.some(product => 
+        (product.sipariskodu?.toLowerCase()?.includes(searchLower)) 
+      );
+    });
+    
+    setGroupedData(filtered);
+  }, [originalGroupedData]);
 
+  // Update the search effect
   useEffect(() => {
-    if (headerVisible && searchText) {
+    if (searchText) {
       handleSearch(searchText);
+    } else {
+      setGroupedData(originalGroupedData);
     }
-  }, [headerVisible, searchText, handleSearch]);
+  }, [searchText, handleSearch, originalGroupedData]);
 
   useEffect(() => {
     let isMounted = true;
@@ -342,6 +412,67 @@ const HomeScreen = () => {
     handleTabChange(selectedIndex);
   }, [selectedIndex, handleTabChange]);
 
+  // Render a single product item
+  const [expandedGroups, setExpandedGroups] = useState({});
+
+  // Update renderBarcodeGroup to show sipariskodu in header
+  const renderBarcodeGroup = useCallback(({item}) => {
+    const isExpanded = expandedGroups[item.barkod] !== false;
+
+    const toggleExpand = () => {
+      setExpandedGroups(prev => ({
+        ...prev,
+        [item.barkod]: !isExpanded
+      }));
+    };
+
+    // Get the first product's sipariskodu to display in header
+    const headerSiparisKodu = item.products[0]?.sipariskodu || '';
+
+    return (
+      <View style={styles.barcodeGroup}>
+        <TouchableOpacity 
+          onPress={toggleExpand}
+          style={[
+            styles.barcodeHeader,
+            { borderBottomWidth: isExpanded ? 1 : 0, borderBottomColor: '#eee' }
+          ]}>
+          <Text style={styles.barcodeText}>{headerSiparisKodu}</Text>
+          <Text style={styles.stockName}>{item.stokTanimi}</Text>
+          <Text style={styles.customerName}>{item.musteriAd}</Text>
+          <Text style={styles.expandIndicator}>
+            {isExpanded ? '▼' : '▶'}
+          </Text>
+        </TouchableOpacity>
+        {isExpanded && (
+          <FlatList
+            data={item.products}
+            renderItem={renderProductItem}
+            keyExtractor={(product) => `${product.id}-${product.sipariskodu}`}
+            scrollEnabled={false}
+          />
+        )}
+      </View>
+    );
+  }, [expandedGroups, renderProductItem]);
+
+  // Update renderProductItem to show plaka in main content
+  const renderProductItem = useCallback(({item}) => (
+    <TouchableOpacity
+      onPress={() => handlePressItem(item)}
+      style={styles.productCard}>
+      <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+        <View style={styles.productInfo}>
+          <Text style={styles.plakaText}>Plaka No: {item.plaka}</Text>
+        </View>
+        <Text style={styles.description}>
+          {new Date(item.tarih).toLocaleDateString('tr-TR')}
+        </Text>
+      </View>
+      <Text style={styles.subtitle}>{item.hata} / {getHataYeriDisplay(item.hataYeri)}</Text>
+    </TouchableOpacity>
+  ), [handlePressItem]);
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -355,12 +486,7 @@ const HomeScreen = () => {
           inactiveBackgroundColor="#ddd"
         />
         <TouchableOpacity
-          onPress={() => {
-            setHeaderVisible(prevState => !prevState);
-          }}
-          onLongPress={() => Alert.alert('')}
-          delayLongPress={5000}
-          activeOpacity={1}
+          onPress={() => setHeaderVisible(prevState => !prevState)}
           style={styles.headerLogo}>
           <Image
             source={require('../assets/images/new.png')}
@@ -384,13 +510,19 @@ const HomeScreen = () => {
       ) : showNoData ? (
         <NoDataView />
       ) : (
-        ProductList
+        <FlatList
+          data={groupedData}
+          renderItem={renderBarcodeGroup}
+          keyExtractor={(item) => item.barkod}
+          contentContainerStyle={styles.listContainer}
+        />
       )}
       <ProductModal
         visible={modalVisible}
         onClose={handleCloseModal}
         item={selectedItem}
         onKararUpdate={handleKararUpdate}
+        loading={modalLoading}
       />
     </SafeAreaView>
   );
@@ -484,6 +616,74 @@ const styles = StyleSheet.create({
   headerSecondBarText: {
     fontSize: Math.min(SCREEN_WIDTH * 0.04, 16),
     color: '#333',
+  },
+  barcodeGroup: {
+    backgroundColor: '#fff',
+    marginVertical: SCREEN_HEIGHT * 0.01,
+    marginHorizontal: SCREEN_WIDTH * 0.04,
+    borderRadius: SCREEN_WIDTH * 0.02,
+    overflow: 'hidden',
+    shadowColor: '#1981ef',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  barcodeHeader: {
+    padding: SCREEN_WIDTH * 0.04,
+    backgroundColor: '#1981ef15',
+    flexDirection: 'column',
+  },
+  barcodeText: {
+    fontSize: Math.min(SCREEN_WIDTH * 0.045, 18),
+    fontWeight: 'bold',
+    color: '#1981ef',
+    marginBottom: SCREEN_HEIGHT * 0.004,
+  },
+  stockName: {
+    fontSize: Math.min(SCREEN_WIDTH * 0.035, 14),
+    color: '#333',
+    marginTop: 4,
+  },
+  customerName: {
+    fontSize: Math.min(SCREEN_WIDTH * 0.035, 14),
+    color: '#666',
+    marginTop: 2,
+  },
+  productCard: {
+    padding: SCREEN_WIDTH * 0.04,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  listContainer: {
+    paddingVertical: SCREEN_HEIGHT * 0.01,
+  },
+  expandIndicator: {
+    position: 'absolute',
+    right: SCREEN_WIDTH * 0.04,
+    top: SCREEN_WIDTH * 0.04,
+    color: '#1981ef',
+    fontSize: Math.min(SCREEN_WIDTH * 0.04, 16),
+  },
+  productInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  plakaContainer: {
+    backgroundColor: '#1981ef15',
+    borderRadius: SCREEN_WIDTH * 0.01,
+    paddingHorizontal: SCREEN_WIDTH * 0.02,
+    paddingVertical: SCREEN_HEIGHT * 0.004,
+    marginLeft: SCREEN_WIDTH * 0.02,
+  },
+  plakaText: {
+    color: '#1981ef',
+    fontSize: Math.min(SCREEN_WIDTH * 0.05, 16),
+    fontWeight: '600',
   },
 });
 
