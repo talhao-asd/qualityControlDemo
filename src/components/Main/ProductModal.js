@@ -72,7 +72,7 @@ const getHataYeriDisplay = hataYeri => {
   }
 };
 
-const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
+const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
   const photoKeyExtractor = useCallback((photo, index) => 
     `modal-photo-${photo.id}-${item?.id}-${index}-${photo.yolu}`,
   [item?.id],);
@@ -140,15 +140,19 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
   };
 
   const renderImage = useCallback(
-    ({item: photo}) => (
-      <TouchableOpacity
-        onPress={() => handleImagePress(`${BASE_URL}${photo.yolu}`)}>
-        <Image
-          source={{uri: `${BASE_URL}${photo.yolu}`}}
-          style={styles.image}
-        />
-      </TouchableOpacity>
-    ),
+    ({item: photo}) => {
+      console.log('Rendering photo:', photo);
+      return (
+        <TouchableOpacity
+          onPress={() => handleImagePress(`${BASE_URL}${photo.yolu}`)}>
+          <Image
+            source={{uri: `${BASE_URL}${photo.yolu}`}}
+            style={styles.image}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
+      );
+    },
     [BASE_URL],
   );
 
@@ -159,6 +163,13 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
 
     return () => subscription?.remove();
   }, []);
+
+  useEffect(() => {
+    if (item) {
+      console.log('Modal item:', item);
+      console.log('Photos:', item.photos);
+    }
+  }, [item]);
 
   const handleDecision = async (karar) => {
     if (!item?.id) {
@@ -214,57 +225,56 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
                     start={{x: 0, y: 0}}
                     end={{x: 0, y: 1}}>
                     <View style={styles.dragIndicator} />
-                    {item ? (
+                    {loading ? (
+                      <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#1981ef" />
+                      </View>
+                    ) : item ? (
                       <>
                         <View style={styles.modalContent}>
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              justifyContent: 'space-between',
-                            }}>
-                            <Text style={styles.siparisKodu}>
-                              {item.sipariskodu}
-                            </Text>
+                          <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                            <Text style={styles.siparisKodu}>{item.sipariskodu}</Text>
                             <Text style={styles.subtitle}>
-                              {new Date(item.kayitTarihi).toLocaleString(
-                                'tr-TR',
-                              )}
+                              {new Date(item.kayitTarihi).toLocaleString('tr-TR')}
                             </Text>
                           </View>
-
                           <Text style={styles.title}>
                             {item.hata} / {getHataYeriDisplay(item.hataYeri)}
                           </Text>
-                          <Text style={styles.description}>
-                            {item.aciklama}
-                          </Text>
+                          <Text style={styles.description}>{item.aciklama}</Text>
                           <Text style={styles.subtitle}>{item.musteriAd}</Text>
                           <Text style={styles.subtitle}>{item.stokTanimi}</Text>
                         </View>
+
                         <View style={styles.imageContainer}>
-                          <View style={{width: '100%'}}>
-                            <NativeViewGestureHandler
-                              ref={scrollRef}
-                              simultaneousHandlers={panRef}>
-                              <FlatList
+                          {item?.photos && item.photos.length > 0 ? (
+                            <View style={{width: '100%'}}>
+                              <NativeViewGestureHandler
                                 ref={scrollRef}
-                                data={item.abFotolars}
-                                horizontal
-                                renderItem={renderImage}
-                                keyExtractor={photoKeyExtractor}
-                                initialNumToRender={3}
-                                maxToRenderPerBatch={3}
-                                windowSize={3}
-                                showsHorizontalScrollIndicator={true}
-                                scrollEnabled={true}
-                                contentContainerStyle={styles.flatListContent}
-                                style={{flexGrow: 0, width: '100%'}}
-                                bounces={false}
-                                pagingEnabled={true}
-                              />
-                            </NativeViewGestureHandler>
-                          </View>
+                                simultaneousHandlers={panRef}>
+                                <FlatList
+                                  ref={scrollRef}
+                                  data={item.photos}
+                                  horizontal
+                                  renderItem={renderImage}
+                                  keyExtractor={(photo) => `modal-photo-${photo.id}`}
+                                  initialNumToRender={3}
+                                  maxToRenderPerBatch={3}
+                                  windowSize={3}
+                                  showsHorizontalScrollIndicator={true}
+                                  scrollEnabled={true}
+                                  contentContainerStyle={styles.flatListContent}
+                                  style={{flexGrow: 0, width: '100%'}}
+                                  bounces={false}
+                                  pagingEnabled={true}
+                                />
+                              </NativeViewGestureHandler>
+                            </View>
+                          ) : (
+                            <Text style={styles.noImagesText}>No images available</Text>
+                          )}
                         </View>
+
                         <View style={styles.decisionContainer}>
                           {isUpdating ? (
                             <View style={styles.loadingContainer}>
@@ -274,12 +284,7 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
                           ) : (
                             <>
                               <TouchableOpacity 
-                                style={[
-                                  styles.decisionButton,
-                                  item.karar === 1 ? styles.activeButton : styles.inactiveButton,
-                                  styles.pendingButton
-                                ]}
-                                disabled={isUpdating}
+                                style={[styles.decisionButton, item.karar === 1 ? styles.activeButton : styles.inactiveButton]}
                                 onPress={() => handleDecision(1)}>
                                 <LinearGradient
                                   colors={item.karar === 1 ? ['#4facfe', '#00f2fe'] : ['#e0e0e0', '#bdbdbd']}
@@ -291,11 +296,7 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
                               </TouchableOpacity>
 
                               <TouchableOpacity 
-                                style={[
-                                  styles.decisionButton,
-                                  item.karar === 2 ? styles.activeButton : styles.inactiveButton,
-                                  styles.approveButton
-                                ]}
+                                style={[styles.decisionButton, item.karar === 2 ? styles.activeButton : styles.inactiveButton]}
                                 onPress={() => handleDecision(2)}>
                                 <LinearGradient
                                   colors={item.karar === 2 ? ['#43e97b', '#38f9d7'] : ['#e0e0e0', '#bdbdbd']}
@@ -307,11 +308,7 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
                               </TouchableOpacity>
 
                               <TouchableOpacity 
-                                style={[
-                                  styles.decisionButton,
-                                  item.karar === 3 ? styles.activeButton : styles.inactiveButton,
-                                  styles.rejectButton
-                                ]}
+                                style={[styles.decisionButton, item.karar === 3 ? styles.activeButton : styles.inactiveButton]}
                                 onPress={() => handleDecision(3)}>
                                 <LinearGradient
                                   colors={item.karar === 3 ? ['#ff758c', '#ff7eb3'] : ['#e0e0e0', '#bdbdbd']}
@@ -323,11 +320,7 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
                               </TouchableOpacity>
 
                               <TouchableOpacity 
-                                style={[
-                                  styles.decisionButton,
-                                  item.karar === 4 ? styles.activeButton : styles.inactiveButton,
-                                  styles.holdButton
-                                ]}
+                                style={[styles.decisionButton, item.karar === 4 ? styles.activeButton : styles.inactiveButton]}
                                 onPress={() => handleDecision(4)}>
                                 <LinearGradient
                                   colors={item.karar === 4 ? ['#ff9a9e', '#fad0c4'] : ['#e0e0e0', '#bdbdbd']}
@@ -341,9 +334,7 @@ const ProductModal = ({visible, onClose, item, onKararUpdate}) => {
                           )}
                         </View>
                       </>
-                    ) : (
-                      <Text>Loading...</Text>
-                    )}
+                    ) : null}
                   </LinearGradient>
                 </View>
               </Animated.View>
@@ -474,18 +465,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   loadingContainer: {
-    width: '100%',
-    height: 80,
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: SCREEN_WIDTH * 0.04,
+    backgroundColor: 'white',
+    borderRadius: SCREEN_WIDTH * 0.02,
   },
   loadingText: {
     marginTop: 10,
     fontSize: SCREEN_WIDTH * 0.035,
     color: '#1981ef',
     fontWeight: '600',
+  },
+  noImagesText: {
+    textAlign: 'center',
+    color: '#666',
+    padding: 10,
   },
 });
 
