@@ -1,4 +1,4 @@
-import React, {useEffect, useState, useCallback, useMemo} from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Alert,
   Dimensions,
+  InteractionManager,
 } from 'react-native';
 import SkeletonLoader from '../components/Main/SkeletonLoader';
 import NoDataView from '../components/Main/NoDataView';
@@ -16,132 +17,74 @@ import AnimatedTabs from '../components';
 import ProductModal from '../components/Main/ProductModal';
 import HeaderSecondBar from '../components/Main/HeaderSecondBar';
 import { useSelector } from 'react-redux';
-import DeviceInfo from 'react-native-device-info';
-import NetInfo from '@react-native-community/netinfo';
+import ProductCard from '../components/Main/ProductCard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const HomeScreen = () => {
+  // Removed FastHomeScreen branch for a single optimized HomeScreen component
+
   const [data, setData] = useState([]);
   const [filteredData, setFilteredData] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [showNoData, setShowNoData] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [headerVisible, setHeaderVisible] = useState(false);
   const { searchText, sonuc } = useSelector(state => state.search);
-  const [modalLoading, setModalLoading] = useState(false);
 
-  // Add new state for grouped data
-  const [groupedData, setGroupedData] = useState([]);
-
-  // Add new state for original data
-  const [originalGroupedData, setOriginalGroupedData] = useState([]);
-
-  // Simplify tabsData to a static array
   const tabsData = useMemo(() => [
+    { icon: 'Loader', label: 'Kayit' },
     { icon: 'Loader', label: 'Bekliyor' },
     { icon: 'AArrowUp', label: 'A Sevk' },
     { icon: 'Bold', label: 'B Sevk' },
     { icon: 'ShieldMinus', label: 'B Kalsın' },
-  ], []); // Empty dependency array since it's now static
+    { icon: 'ShieldMinus', label: 'Tüm Ürünler' },
+  ], []);
 
-  // Memoize the fetch URL with base URL constant
   const BASE_URL = useMemo(() => 'http://192.168.0.88:90', []);
   const fetchUrl = useMemo(() => {
     const endpoint = '/api/Product/Listele';
-    let url = `${BASE_URL}${endpoint}?karar=${selectedIndex + 1}&sonuc=0`;
+    let url = selectedIndex === 5
+      ? `${BASE_URL}${endpoint}`
+      : `${BASE_URL}${endpoint}?karar=${selectedIndex}`;
+
+    if (sonuc !== 'tumu') {
+      url += `${url.includes('?') ? '&' : '?'}sonuc=${sonuc}`;
+    }
     return url;
-  }, [selectedIndex, BASE_URL]);
+  }, [selectedIndex, BASE_URL, sonuc]);
 
-  // Memoize the fetch options
-  const fetchOptions = useMemo(
-    () => ({
-      method: 'GET',
-      headers: {
-        accept: '*/*',
-      },
-    }),
-    [],
-  );
+  const fetchOptions = useMemo(() => ({
+    method: 'GET',
+    headers: {
+      accept: '*/*',
+    },
+  }), []);
 
-  // Memoize the image renderer for nested FlatList
-  const renderImage = useCallback(
-    ({item: photo}) => (
-      <Image source={{uri: `${BASE_URL}${photo.yolu}`}} style={styles.image} />
-    ),
-    [BASE_URL],
-  );
+  // Function to handle product selection
+  const handlePressItem = useCallback(item => {
+    setSelectedItem(item);
+    setModalVisible(true);
+  }, []);
 
-  // Update the keyExtractor to include more unique identifiers
-  const keyExtractor = useCallback((item, index) => 
-    `${item.id}-${item.sipariskodu}-${item.tarih}-${index}`,
-  []);
-
-  // Update the photo keyExtractor if you re-enable the photo FlatList
-  const photoKeyExtractor = useCallback((photo, index) => 
-    `photo-${photo.id}-${index}`,
-  []);
-
-  // Add fetchProductPhotos function
-  const fetchProductPhotos = useCallback(async (productId) => {
-    try {
-      const response = await fetch(
-        `${BASE_URL}/api/Product/GetPhotosByProductId?productId=${productId}`,
-        {
-          method: 'GET',
-          headers: {
-            accept: '*/*',
-          },
-        }
-      );
-      const result = await response.json();
-      if (result.statusCode === 200 && result.data) {
-        return result.data;
-      }
-      return [];
-    } catch (error) {
-      console.error('Error fetching photos:', error);
-      return [];
-    }
-  }, [BASE_URL]);
-
-  // Update handlePressItem to use fetchProductPhotos
-  const handlePressItem = useCallback(async (item) => {
-    setModalLoading(true);
-    try {
-      const photos = await fetchProductPhotos(item.id);
-      console.log('Fetched photos:', photos);
-      setSelectedItem({ 
-        ...item, 
-        photos: photos
-      });
-      setModalVisible(true);
-    } catch (error) {
-      console.error('Error in handlePressItem:', error);
-      setSelectedItem(item);
-      setModalVisible(true);
-    } finally {
-      setModalLoading(false);
-    }
-  }, [fetchProductPhotos]);
-
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalVisible(false);
     setSelectedItem(null);
-  };
+    // Force re-mounting of FlatList to reset residual touch state
+    setListKey(prev => prev + 1);
+  }, []);
 
-  const getHataYeriDisplay = hataYeri => {
+  const getHataYeriDisplay = useCallback(hataYeri => {
     const location = Number(hataYeri);
-
     switch (location) {
       case 1:
       case 4:
       case 9:
       case 12:
         return 'Ön - Köşe';
-
       case 2:
       case 3:
       case 5:
@@ -149,17 +92,14 @@ const HomeScreen = () => {
       case 10:
       case 11:
         return 'Ön - Kenar';
-
       case 6:
       case 7:
         return 'Ön - Orta';
-
       case 13:
       case 16:
       case 21:
       case 24:
         return 'Arka - Köşe';
-
       case 14:
       case 15:
       case 17:
@@ -167,135 +107,68 @@ const HomeScreen = () => {
       case 22:
       case 23:
         return 'Arka - Kenar';
-
       case 18:
       case 19:
         return 'Arka - Orta';
-
       default:
         return 'Bilinmiyor';
     }
-  };
-  // Memoize the renderItem function with its dependencies
-  const renderItem = useCallback(
-    ({item}) => (
-      <TouchableOpacity
-        onPress={() => handlePressItem(item)}
-        style={styles.card}>
-        <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-          <Text style={styles.title}>{item.musteriAd?.slice(0, 15)}...</Text>
-          <Text style={styles.description}>
-            {new Date(item.tarih).toLocaleDateString('tr-TR')}
-          </Text>
-        </View>
-        <Text style={styles.siparisKodu}>{item.sipariskodu}</Text>
-        <Text style={styles.subtitle}>{item.stokTanimi}</Text>
-        <Text style={styles.description}>
-          {item.hata} / {getHataYeriDisplay(item.hataYeri)}
-        </Text>
-
-        {/* <FlatList
-          data={item.abFotolars}
-          horizontal
-          renderItem={renderImage}
-          keyExtractor={photoKeyExtractor}
-          initialNumToRender={3}
-          maxToRenderPerBatch={3}
-          windowSize={3}
-        /> */}
-      </TouchableOpacity>
-    ),
-    [handlePressItem, renderImage, photoKeyExtractor],
-  );
-
-  const handleTabChange = useCallback(
-    index => {
-      // Reduce delay or optimize here
-      setIsLoading(true);
-      setShowNoData(false);
-      setData([]);
-      setFilteredData([]);
-
-      if (index === selectedIndex) {
-        // Immediate fetch without waiting for useEffect
-        fetch(fetchUrl, fetchOptions)
-          .then(response => response.json())
-          .then(data => {
-            if (data) {
-              parseAndSetData(data);
-            }
-          })
-          .catch(error => {
-            console.error('Fetch error:', error);
-            setShowNoData(true);
-          })
-          .finally(() => {
-            setIsLoading(false);
-          });
-      } else {
-        setSelectedIndex(index);
-      }
-    },
-    [selectedIndex, fetchUrl, fetchOptions, parseAndSetData],
-  );
-
-  // Memoize the error handler
-  const handleError = useCallback(error => {
-    console.error('Error details:', error.message);
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      setShowNoData(true);
-    }, 500);
-    setData([]);
-    setFilteredData([]);
   }, []);
 
-  // Update parseAndSetData to store both original and filtered data
+  // Memoized renderItem that uses the memoized ProductCard
+  const renderItem = useCallback(({ item }) => (
+    <ProductCard
+      item={item}
+      onPress={handlePressItem}
+      getHataYeriDisplay={getHataYeriDisplay}
+    />
+  ), [handlePressItem, getHataYeriDisplay]);
+
+  const keyExtractor = useCallback((item, index) =>
+    `${item.id}-${item.sipariskodu}-${item.tarih}-${index}`, []
+  );
+
   const parseAndSetData = useCallback(responseData => {
     if (responseData.data && Array.isArray(responseData.data)) {
       if (responseData.data.length === 0) {
         setShowNoData(true);
-        return;
-      }
-      
-      setShowNoData(false);
-      
-      // Group by barcode
-      const groupedByBarcode = responseData.data.reduce((acc, current) => {
-        if (!acc[current.barkod]) {
-          acc[current.barkod] = {
-            barkod: current.barkod,
-            stokTanimi: current.stokTanimi,
-            musteriAd: current.musteriAd,
-            products: []
-          };
-        }
-        
-        const existingProduct = acc[current.barkod].products.find(
-          item => item.id === current.id && item.sipariskodu === current.sipariskodu
+      } else {
+        setShowNoData(false);
+        const sortedData = responseData.data.sort((a, b) =>
+          new Date(b.tarih) - new Date(a.tarih)
         );
-        
-        if (!existingProduct) {
-          acc[current.barkod].products.push(current);
-        }
-        
-        return acc;
-      }, {});
-
-      // Convert to array and sort
-      const groupedArray = Object.values(groupedByBarcode).map(group => ({
-        ...group,
-        products: group.products.sort((a, b) => new Date(b.tarih) - new Date(a.tarih))
-      }));
-
-      setOriginalGroupedData(groupedArray); // Store original data
-      setGroupedData(groupedArray); // Set current filtered data
+        setData(sortedData);
+        setFilteredData(sortedData);
+      }
     } else {
       console.error('Expected an array but received:', responseData);
       setShowNoData(true);
     }
   }, []);
+
+  const handleTabChange = useCallback(index => {
+    setIsLoading(true);
+    setShowNoData(false);
+    setData([]);
+    setFilteredData([]);
+    setSelectedIndex(index);
+
+    // Save the selected tab index asynchronously after UI interactions finish
+    InteractionManager.runAfterInteractions(() => {
+       AsyncStorage.setItem('selectedTabIndex', index.toString())
+         .catch(err => console.error("Error saving tab index", err));
+    });
+
+    // Fetch new data immediately on tab change
+    fetch(fetchUrl, fetchOptions)
+      .then(response => response.json())
+      .then(data => parseAndSetData(data))
+      .catch(error => {
+        console.error('Fetch error:', error);
+        setShowNoData(true);
+      })
+      .finally(() => setIsLoading(false));
+  }, [fetchUrl, fetchOptions, parseAndSetData]);
 
   const handleSort = useCallback((sortOrder) => {
     setFilteredData(prevData => {
@@ -303,175 +176,94 @@ const HomeScreen = () => {
       return newData.sort((a, b) => {
         const dateA = new Date(a.tarih);
         const dateB = new Date(b.tarih);
-        return sortOrder === 'desc' 
-          ? dateB - dateA  // Newer to older
-          : dateA - dateB; // Older to newer
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
       });
     });
   }, []);
 
-  // Update handleSearch to safely check properties
-  const handleSearch = useCallback((searchText) => {
-    if (!searchText) {
-      setGroupedData(originalGroupedData);
+  const handleSearch = useCallback(text => {
+    if (!text) {
+      setFilteredData(data);
       return;
     }
+    const filtered = data.filter(item =>
+      item.sipariskodu.toLowerCase().includes(text.toLowerCase())
+    );
+    setFilteredData(filtered);
+  }, [data]);
 
-    const searchLower = searchText.toLowerCase();
-    const filtered = originalGroupedData.filter(group => {
-      return group.products.some(product => 
-        (product.sipariskodu?.toLowerCase()?.includes(searchLower)) 
-      );
-    });
-    
-    setGroupedData(filtered);
-  }, [originalGroupedData]);
-
-  // Update the search effect
   useEffect(() => {
-    if (searchText) {
+    if (headerVisible && searchText) {
       handleSearch(searchText);
-    } else {
-      setGroupedData(originalGroupedData);
     }
-  }, [searchText, handleSearch, originalGroupedData]);
+  }, [headerVisible, searchText, handleSearch]);
 
   useEffect(() => {
     let isMounted = true;
-    let timeoutId;
+    // Removed artificial delay to load data faster
+    fetch(fetchUrl, fetchOptions)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (isMounted) {
+          parseAndSetData(data);
+        }
+      })
+      .catch(error => {
+        console.error('Fetch error:', error);
+        if (isMounted) {
+          setShowNoData(true);
+          setData([]);
+          setFilteredData([]);
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
 
-    // Delay the API call slightly to ensure animation completes
-    timeoutId = setTimeout(() => {
-      if (!isMounted) return;
-
-      fetch(fetchUrl, fetchOptions)
-        .then(response => {
-          console.log('Response received:', response);
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('Data parsed:', data);
-          if (isMounted) {
-            parseAndSetData(data);
-          }
-        })
-        .catch(error => {
-          console.error('Fetch error:', error);
-          if (isMounted) {
-            setShowNoData(true);
-            setData([]);
-            setFilteredData([]);
-          }
-        })
-        .finally(() => {
-          if (isMounted) {
-            setIsLoading(false);
-          }
-        });
-    }, 300); // 300ms delay to match the handleTabChange delay
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-    };
+    return () => { isMounted = false; };
   }, [fetchUrl, fetchOptions, parseAndSetData]);
 
-  // Memoize the FlatList component
-  const ProductList = useMemo(
-    () => (
-      <FlatList
-        data={filteredData}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-        initialNumToRender={10}
-        maxToRenderPerBatch={5}
-        windowSize={5}
-        removeClippedSubviews={true}
-      />
-    ),
-    [filteredData, renderItem, keyExtractor],
-  );
+  const ProductList = useMemo(() => (
+    <FlatList
+      data={filteredData}
+      renderItem={renderItem}
+      keyExtractor={keyExtractor}
+      initialNumToRender={10}
+      maxToRenderPerBatch={5}
+      windowSize={5}
+      removeClippedSubviews={true}
+      showsVerticalScrollIndicator={true}
+    />
+  ), [filteredData, renderItem, keyExtractor]);
 
-  // Add this memoized skeleton list
-  const SkeletonList = useMemo(
-    () => (
-      <FlatList
-        data={[1, 2, 3, 4]} // Show 4 skeleton items
-        renderItem={() => <SkeletonLoader />}
-        keyExtractor={item => item.toString()}
-      />
-    ),
-    [],
-  );
+  // Ensure you hold a ref to your FlatList and a key to force a refresh after modal close:
+  const flatListRef = useRef(null);
+  const currentOffsetRef = useRef(0);
+  const [listKey, setListKey] = useState(0);
 
-  const handleKararUpdate = useCallback(() => {
-    // Trigger a refresh by simulating a tab change to the current tab
-    handleTabChange(selectedIndex);
-  }, [selectedIndex, handleTabChange]);
+  // Track the FlatList offset using a ref to avoid re-renders on every scroll event:
+  const handleScroll = event => {
+    currentOffsetRef.current = event.nativeEvent.contentOffset.y;
+  };
 
-  // Render a single product item
-  const [expandedGroups, setExpandedGroups] = useState({});
+  const handleSwipeDismiss = velocityY => {
+    handleCloseModal(); // close the modal
 
-  // Update renderBarcodeGroup to show sipariskodu in header
-  const renderBarcodeGroup = useCallback(({item}) => {
-    const isExpanded = expandedGroups[item.barkod] !== false;
-
-    const toggleExpand = () => {
-      setExpandedGroups(prev => ({
-        ...prev,
-        [item.barkod]: !isExpanded
-      }));
-    };
-
-    // Get the first product's sipariskodu to display in header
-    const headerSiparisKodu = item.products[0]?.sipariskodu || '';
-
-    return (
-      <View style={styles.barcodeGroup}>
-        <TouchableOpacity 
-          onPress={toggleExpand}
-          style={[
-            styles.barcodeHeader,
-            { borderBottomWidth: isExpanded ? 1 : 0, borderBottomColor: '#eee' }
-          ]}>
-          <Text style={styles.barcodeText}>{headerSiparisKodu}</Text>
-          <Text style={styles.stockName}>{item.stokTanimi}</Text>
-          <Text style={styles.customerName}>{item.musteriAd}</Text>
-          <Text style={styles.expandIndicator}>
-            {isExpanded ? '▼' : '▶'}
-          </Text>
-        </TouchableOpacity>
-        {isExpanded && (
-          <FlatList
-            data={item.products}
-            renderItem={renderProductItem}
-            keyExtractor={(product) => `${product.id}-${product.sipariskodu}`}
-            scrollEnabled={false}
-          />
-        )}
-      </View>
-    );
-  }, [expandedGroups, renderProductItem]);
-
-  // Update renderProductItem to show plaka in main content
-  const renderProductItem = useCallback(({item}) => (
-    <TouchableOpacity
-      onPress={() => handlePressItem(item)}
-      style={styles.productCard}>
-      <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-        <View style={styles.productInfo}>
-          <Text style={styles.plakaText}>Plaka No: {item.plaka}</Text>
-        </View>
-        <Text style={styles.description}>
-          {new Date(item.tarih).toLocaleDateString('tr-TR')}
-        </Text>
-      </View>
-      <Text style={styles.subtitle}>{item.hata} / {getHataYeriDisplay(item.hataYeri)}</Text>
-    </TouchableOpacity>
-  ), [handlePressItem]);
+    // Optionally, if you want to continue scrolling:
+    if (flatListRef.current) {
+      // Calculate additional offset based on velocity; adjust factor as needed.
+      const additionalOffset = velocityY * 10; 
+      flatListRef.current.scrollToOffset({
+        offset: currentOffsetRef.current + additionalOffset,
+        animated: true,
+      });
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -485,16 +277,8 @@ const HomeScreen = () => {
           activeBackgroundColor="#1981ef"
           inactiveBackgroundColor="#ddd"
         />
-        <TouchableOpacity
-          onPress={() => setHeaderVisible(prevState => !prevState)}
-          style={styles.headerLogo}>
-          <Image
-            source={require('../assets/images/new.png')}
-            style={styles.headerImage}
-          />
-        </TouchableOpacity>
       </View>
-      
+
       {headerVisible && (
         <HeaderSecondBar 
           onSort={handleSort} 
@@ -511,19 +295,39 @@ const HomeScreen = () => {
         <NoDataView />
       ) : (
         <FlatList
-          data={groupedData}
-          renderItem={renderBarcodeGroup}
-          keyExtractor={(item) => item.barkod}
+          key={listKey}
+          ref={flatListRef}
+          data={filteredData}
+          renderItem={renderItem}
+          keyExtractor={keyExtractor}
+          onScroll={handleScroll}
+          showsVerticalScrollIndicator={true}
+          removeClippedSubviews={true}
+          getItemLayout={(data, index) => ({
+            length: 120,
+            offset: 120 * index,
+            index,
+          })}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+          }}
+          ListHeaderComponent={headerVisible ? HeaderSecondBar : null}
           contentContainerStyle={styles.listContainer}
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          bounces={false}
         />
       )}
-      <ProductModal
-        visible={modalVisible}
-        onClose={handleCloseModal}
-        item={selectedItem}
-        onKararUpdate={handleKararUpdate}
-        loading={modalLoading}
-      />
+      {modalVisible && (
+        <ProductModal
+          visible={modalVisible}
+          onClose={handleCloseModal}
+          onSwipeDismiss={handleSwipeDismiss}
+          item={selectedItem}
+          onKararUpdate={() => handleTabChange(selectedIndex)}
+          loading={isLoading}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -554,18 +358,16 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#fff',
+    width: '92%',
+    alignSelf: 'center',
     padding: Math.min(SCREEN_WIDTH * 0.04, 12),
-    marginVertical: SCREEN_HEIGHT * 0.01,
-    marginHorizontal: SCREEN_WIDTH * 0.04,
+    marginVertical: SCREEN_HEIGHT * 0.008,
     borderRadius: Math.min(SCREEN_WIDTH * 0.02, 8),
     shadowColor: '#1981ef',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
   title: {
     fontSize: Math.min(SCREEN_WIDTH * 0.045, 18),
@@ -617,73 +419,8 @@ const styles = StyleSheet.create({
     fontSize: Math.min(SCREEN_WIDTH * 0.04, 16),
     color: '#333',
   },
-  barcodeGroup: {
-    backgroundColor: '#fff',
-    marginVertical: SCREEN_HEIGHT * 0.01,
-    marginHorizontal: SCREEN_WIDTH * 0.04,
-    borderRadius: SCREEN_WIDTH * 0.02,
-    overflow: 'hidden',
-    shadowColor: '#1981ef',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  barcodeHeader: {
-    padding: SCREEN_WIDTH * 0.04,
-    backgroundColor: '#1981ef15',
-    flexDirection: 'column',
-  },
-  barcodeText: {
-    fontSize: Math.min(SCREEN_WIDTH * 0.045, 18),
-    fontWeight: 'bold',
-    color: '#1981ef',
-    marginBottom: SCREEN_HEIGHT * 0.004,
-  },
-  stockName: {
-    fontSize: Math.min(SCREEN_WIDTH * 0.035, 14),
-    color: '#333',
-    marginTop: 4,
-  },
-  customerName: {
-    fontSize: Math.min(SCREEN_WIDTH * 0.035, 14),
-    color: '#666',
-    marginTop: 2,
-  },
-  productCard: {
-    padding: SCREEN_WIDTH * 0.04,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
   listContainer: {
-    paddingVertical: SCREEN_HEIGHT * 0.01,
-  },
-  expandIndicator: {
-    position: 'absolute',
-    right: SCREEN_WIDTH * 0.04,
-    top: SCREEN_WIDTH * 0.04,
-    color: '#1981ef',
-    fontSize: Math.min(SCREEN_WIDTH * 0.04, 16),
-  },
-  productInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  plakaContainer: {
-    backgroundColor: '#1981ef15',
-    borderRadius: SCREEN_WIDTH * 0.01,
-    paddingHorizontal: SCREEN_WIDTH * 0.02,
-    paddingVertical: SCREEN_HEIGHT * 0.004,
-    marginLeft: SCREEN_WIDTH * 0.02,
-  },
-  plakaText: {
-    color: '#1981ef',
-    fontSize: Math.min(SCREEN_WIDTH * 0.05, 16),
-    fontWeight: '600',
+    paddingBottom: SCREEN_HEIGHT * 0.02,
   },
 });
 
