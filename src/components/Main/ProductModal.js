@@ -13,7 +13,6 @@ import {
 import {
   PanGestureHandler,
   GestureHandlerRootView,
-  NativeViewGestureHandler,
 } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedGestureHandler,
@@ -72,9 +71,11 @@ const getHataYeriDisplay = hataYeri => {
   }
 };
 
-const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
+const ProductModal = ({visible, onClose, onSwipeDismiss, item, onKararUpdate, loading}) => {
+  if (!visible) return null;
+
   const photoKeyExtractor = useCallback((photo, index) => 
-    `modal-photo-${photo.id}-${item?.id}-${index}-${photo.yolu}`,
+    `modal-photo-${photo.id}-${item?.id}-${index}-${photo.fotoYolu}`,
   [item?.id],);
   const BASE_URL = useMemo(() => 'http://192.168.0.88:90', []);
   const translateY = useSharedValue(0);
@@ -82,7 +83,6 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [dimensions, setDimensions] = useState(Dimensions.get('window'));
-  const panRef = useRef(null);
   const scrollRef = useRef(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -91,19 +91,19 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
       ctx.startY = translateY.value;
     },
     onActive: (event, ctx) => {
-      if (event.translationY > 0) {
+      if (
+        Math.abs(event.translationY) > Math.abs(event.translationX) &&
+        event.translationY > 0
+      ) {
         translateY.value = event.translationY;
-        // Calculate opacity based on drag distance
         opacity.value = Math.max(0, 1 - event.translationY / 200);
       }
     },
     onEnd: event => {
-      if (event.translationY > 50) {
-        // Immediately close
+      if (event.translationY > 30) {
         opacity.value = 0;
-        runOnJS(onClose)();
+        runOnJS(onSwipeDismiss ? onSwipeDismiss : onClose)(event.velocityY);
       } else {
-        // Spring back to original position
         translateY.value = withSpring(0, {
           damping: 50,
           stiffness: 200,
@@ -113,13 +113,12 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
     },
   });
 
-  // Reset position and opacity when modal becomes visible
   useEffect(() => {
     if (visible) {
       translateY.value = 0;
       opacity.value = 1;
     }
-  }, [visible]);
+  }, [visible, translateY, opacity]);
 
   const rStyle = useAnimatedStyle(() => {
     return {
@@ -141,19 +140,23 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
 
   const renderImage = useCallback(
     ({item: photo}) => {
-      console.log('Rendering photo:', photo);
+      if (!photo?.fotoYolu) return null;
+      const imageUrl = `${BASE_URL}${photo.fotoYolu}`;
+      console.log(`Trying to fetch foto from: ${imageUrl}`);
       return (
-        <TouchableOpacity
-          onPress={() => handleImagePress(`${BASE_URL}${photo.yolu}`)}>
+        <TouchableOpacity onPress={() => handleImagePress(imageUrl)}>
           <Image
-            source={{uri: `${BASE_URL}${photo.yolu}`}}
+            source={{uri: imageUrl}}
             style={styles.image}
             resizeMode="cover"
+            onLoad={() => console.log(`Successfully loaded image from: ${imageUrl}`)}
+            onError={error => console.warn('Image load error:', error)}
+            defaultSource={require('../../assets/images/ASD.png')}
           />
         </TouchableOpacity>
       );
     },
-    [BASE_URL],
+    [BASE_URL, handleImagePress]
   );
 
   useEffect(() => {
@@ -204,6 +207,15 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
     }
   };
 
+  useEffect(() => {
+    return () => {
+      // Cleanup when modal unmounts
+      if (visible) {
+        onClose();
+      }
+    };
+  }, [visible, onClose]);
+
   return (
     <>
       <Modal
@@ -215,8 +227,9 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
           <Animated.View style={[styles.centeredView, overlayStyle]}>
             <PanGestureHandler
               onGestureEvent={panGestureEvent}
-              ref={panRef}
-              simultaneousHandlers={scrollRef}>
+              waitFor={scrollRef}
+              simultaneousHandlers={scrollRef}
+              activeOffsetY={20}>
               <Animated.View style={[styles.modalOuterContainer, rStyle]}>
                 <View style={styles.modalContainer}>
                   <LinearGradient
@@ -248,28 +261,37 @@ const ProductModal = ({visible, onClose, item, onKararUpdate, loading}) => {
 
                         <View style={styles.imageContainer}>
                           {item?.photos && item.photos.length > 0 ? (
-                            <View style={{width: '100%'}}>
-                              <NativeViewGestureHandler
-                                ref={scrollRef}
-                                simultaneousHandlers={panRef}>
-                                <FlatList
-                                  ref={scrollRef}
-                                  data={item.photos}
-                                  horizontal
-                                  renderItem={renderImage}
-                                  keyExtractor={(photo) => `modal-photo-${photo.id}`}
-                                  initialNumToRender={3}
-                                  maxToRenderPerBatch={3}
-                                  windowSize={3}
-                                  showsHorizontalScrollIndicator={true}
-                                  scrollEnabled={true}
-                                  contentContainerStyle={styles.flatListContent}
-                                  style={{flexGrow: 0, width: '100%'}}
-                                  bounces={false}
-                                  pagingEnabled={true}
-                                />
-                              </NativeViewGestureHandler>
-                            </View>
+                            <FlatList
+                              data={item.photos}
+                              horizontal
+                              renderItem={renderImage}
+                              keyExtractor={(photo, index) =>
+                                `modal-photo-${photo.id}-${index}-${photo.fotoYolu}`
+                              }
+                              initialNumToRender={3}
+                              maxToRenderPerBatch={3}
+                              windowSize={3}
+                              showsHorizontalScrollIndicator={true}
+                              style={{ flexGrow: 0, width: '100%' }}
+                              bounces={false}
+                              pagingEnabled={true}
+                            />
+                          ) : item?.fotoYolu ? (
+                            <TouchableOpacity
+                              onPress={() => handleImagePress(`${BASE_URL}${item.fotoYolu}`)}>
+                              <Image
+                                source={{ uri: `${BASE_URL}${item.fotoYolu}` }}
+                                style={styles.image}
+                                resizeMode="cover"
+                                onLoad={() =>
+                                  console.log(
+                                    `Successfully loaded image from: ${BASE_URL}${item.fotoYolu}`
+                                  )
+                                }
+                                onError={error => console.warn('Image load error:', error)}
+                                defaultSource={require('../../assets/images/ASD.png')}
+                              />
+                            </TouchableOpacity>
                           ) : (
                             <Text style={styles.noImagesText}>No images available</Text>
                           )}
