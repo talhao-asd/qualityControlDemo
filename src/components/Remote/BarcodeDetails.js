@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   Modal,
   View,
@@ -21,13 +21,13 @@ const BASE_URL = 'http://192.168.0.88:90'; // Update if needed
  * This component adapts its layout based on the current device width and height.
  * It uses the Dimensions API to retrieve the screen size and listens for any changes.
  */
-const BarcodeDetails = ({ visible, onClose, details }) => {
+const BarcodeDetails = ({visible, onClose, details}) => {
   // Use the Dimensions API to get initial screen dimensions.
   const [dimensions, setDimensions] = useState(Dimensions.get('window'));
 
   // Listen for dimension changes (e.g., orientation changes) to update the dimensions.
   useEffect(() => {
-    const handler = ({ window }) => {
+    const handler = ({window}) => {
       setDimensions(window);
     };
     const subscription = Dimensions.addEventListener('change', handler);
@@ -37,14 +37,16 @@ const BarcodeDetails = ({ visible, onClose, details }) => {
   }, []);
 
   // Destructure the current width and height from dimensions.
-  const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = dimensions;
+  const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = dimensions;
   const styles = getStyles(SCREEN_WIDTH, SCREEN_HEIGHT);
 
   const [isImageViewerVisible, setImageViewerVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [isUpdating, setIsUpdating] = useState(false);
   // Local state to maintain the current decision value.
-  const [currentKarar, setCurrentKarar] = useState(details ? details.karar : null);
+  const [currentKarar, setCurrentKarar] = useState(
+    details ? details.karar : null,
+  );
 
   // Update local decision state if new details are provided.
   useEffect(() => {
@@ -66,7 +68,7 @@ const BarcodeDetails = ({ visible, onClose, details }) => {
     if (typeof value === 'undefined') {
       return (
         <View style={styles.detailItem}>
-          <Text style={[styles.detailLabel, { color: '#000' }]}>{label}</Text>
+          <Text style={[styles.detailLabel, {color: '#000'}]}>{label}</Text>
         </View>
       );
     }
@@ -172,9 +174,7 @@ const BarcodeDetails = ({ visible, onClose, details }) => {
                       <TouchableOpacity
                         style={[
                           styles.decisionButton,
-                          currentKarar === 1
-                            ? styles.activeButton
-                            : styles.inactiveButton,
+                          currentKarar === 1 ? styles.activeButton : styles.inactiveButton,
                         ]}
                         onPress={() => handleDecision(1)}>
                         <Text style={styles.decisionText}>Onay Bekliyor</Text>
@@ -183,9 +183,7 @@ const BarcodeDetails = ({ visible, onClose, details }) => {
                       <TouchableOpacity
                         style={[
                           styles.decisionButton,
-                          currentKarar === 2
-                            ? styles.activeButton
-                            : styles.inactiveButton,
+                          currentKarar === 2 ? styles.activeButton : styles.inactiveButton,
                         ]}
                         onPress={() => handleDecision(2)}>
                         <Text style={styles.decisionText}>A Sevk</Text>
@@ -194,9 +192,7 @@ const BarcodeDetails = ({ visible, onClose, details }) => {
                       <TouchableOpacity
                         style={[
                           styles.decisionButton,
-                          currentKarar === 3
-                            ? styles.activeButton
-                            : styles.inactiveButton,
+                          currentKarar === 3 ? styles.activeButton : styles.inactiveButton,
                         ]}
                         onPress={() => handleDecision(3)}>
                         <Text style={styles.decisionText}>B Sevk</Text>
@@ -205,9 +201,7 @@ const BarcodeDetails = ({ visible, onClose, details }) => {
                       <TouchableOpacity
                         style={[
                           styles.decisionButton,
-                          currentKarar === 4
-                            ? styles.activeButton
-                            : styles.inactiveButton,
+                          currentKarar === 4 ? styles.activeButton : styles.inactiveButton,
                         ]}
                         onPress={() => handleDecision(4)}>
                         <Text style={styles.decisionText}>B Kalsın</Text>
@@ -328,14 +322,17 @@ const getStyles = (width, height) =>
     decisionContainer: {
       flexDirection: 'row',
       flexWrap: 'wrap',
-      justifyContent: 'space-around',
+      justifyContent: 'space-between',
       marginVertical: 10,
     },
     decisionButton: {
       paddingVertical: 10,
       paddingHorizontal: 12,
       borderRadius: 5,
-      marginHorizontal: 4,
+      marginBottom: 10,
+      width: '48%', // Ensures two buttons per row with space between
+      alignItems: 'center',
+      justifyContent: 'center',
       backgroundColor: '#e0e0e0',
     },
     activeButton: {
